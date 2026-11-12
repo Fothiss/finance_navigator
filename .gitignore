@@ -218,3 +218,14 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Финансовый навигатор: локальные кеши и артефакты
+.uv-cache/
+.npm-cache/
+.tmp/
+backend/.cache/
+backend/tests/_artifacts/
+backend/ml_artifacts/
+frontend/node_modules/
+frontend/dist/
+

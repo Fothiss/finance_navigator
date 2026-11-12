@@ -101,15 +101,97 @@ ML-слой оценивает вероятность роста ставок п
 - **Не все модули обязательны для всех.** Пользователь подключает те,
   которые решают его боль.
 
-## Структура проекта (план)
-app/
-├── api/ # роутеры FastAPI (/money, /risk, /tax, /profile)
-├── services/ # бизнес-логика (расчёт спреда, волатильности, налогов)
-├── ml/ # модели, признаки, бэктест
-│ ├── money/ # классификатор вероятности роста ставок
-│ ├── risk/ # классификатор вероятности аномального движения
-│ └── tax/ # прогноз выручки и расходов (Prophet)
-├── data/ # загрузка и кеширование данных ЦБ, парсинг CSV
-├── models/ # схемы БД (SQLAlchemy)
-└── core/ # конфиг, зависимости
+## Структура проекта
+
+```
+backend/
+├── app/
+│   ├── __main__.py          # запуск dev-сервера (127.0.0.1:8000)
+│   ├── main.py              # сборка FastAPI, CORS, обработчики problem+json
+│   ├── deps.py              # синглтон сервиса модуля 1
+│   ├── errors.py            # ошибки в формате RFC 7807
+│   ├── routers/             # health, money — только валидация и вызов сервиса
+│   ├── services/money/      # indicators, target, rule, backtest, policy, benchmark, signal, series
+│   ├── clients/             # cbr_client (SOAP + КБД + xlsx), moex_client (ISS)
+│   ├── data/                # records, parsers, cache (TTL + снапшот), sources, sync
+│   ├── schemas/             # Pydantic-схемы API — источник типов для фронтенда
+│   ├── config/settings.py   # пороги политики, модельные параметры, URL источников
+│   └── models/              # пусто: БД у модуля 1 нет
+├── tests/                   # pytest: парсеры, клиенты, кеш, сервисы, API
+└── Dockerfile
+frontend/
+├── src/
+│   ├── api/                 # client.ts + schema.d.ts (генерируется из OpenAPI)
+│   ├── components/          # SignalCard, PolicySelect, SpreadChart, BenchmarkPanel, ComparisonPanel
+│   ├── hooks/               # useMoneySignals, useMoneySeries, usePolicies, usePolicyState
+│   ├── pages/               # Money + заглушки Risk, Tax, Profile, History
+│   └── store/policy.ts      # пороги политики в URL
+├── tests/                   # vitest + testing-library
+└── Dockerfile
+docs/
+├── API.md                   # контракты эндпоинтов
+└── DATA.md                  # источники ЦБ/MOEX, глубина истории, что не работает
+docker-compose.yml           # backend + frontend, без БД и Redis
+.env.example                 # все FN_* переменные
+```
+
+## Быстрый старт
+
+### Backend
+
+`uv` и все зависимости уже лежат внутри `backend\.venv`, поэтому работать можно без глобальной установки:
+
+```powershell
+cd backend
+.\.venv\Scripts\uv.exe run python app\__main__.py   # http://127.0.0.1:8000, Swagger на /docs
+.\.venv\Scripts\uv.exe run python -m app.data.sync  # обновить снапшоты данных ЦБ/MOEX
+.\.venv\Scripts\uv.exe run pytest -v
+.\.venv\Scripts\uv.exe run ruff check .
+.\.venv\Scripts\uv.exe sync                         # доустановить зависимости
+```
+
+Без `uv` вообще тоже работает — интерпретатор и пакеты в том же venv:
+
+```powershell
+cd backend
+.\.venv\Scripts\python.exe app\__main__.py
+.\.venv\Scripts\python.exe -m pytest -v
+```
+
+Если поставишь `uv` глобально (`py -m pip install --user uv`), команды сокращаются до обычных
+`uv run ...` из каталога `backend`. Базовый интерпретатор — `%LOCALAPPDATA%\Programs\Python\Python312`
+(команда `python` в PATH может быть перекрыта заглушкой Microsoft Store; тогда используй `py`).
+
+### Frontend
+
+```bash
+cd frontend
+npm install --ignore-scripts   # --ignore-scripts: esbuild не требует postinstall
+npm run gen:api                # типы из http://127.0.0.1:8000/openapi.json (backend запущен)
+npm run dev                    # http://localhost:5173, прокси /api на 127.0.0.1:8000
+npm run build
+npm run lint
+npm run test
+```
+
+### Docker
+
+```bash
+docker compose up -d --build
+curl http://127.0.0.1:8000/api/v1/health
+```
+
+## Модуль 1: что считается
+
+Два независимых сигнала о вероятности повышения ключевой ставки в ближайшие 30 дней:
+
+- `rusfar_term_premium` — премия RUSFAR 1M к ключевой ставке (MOEX ISS);
+- `ofz_curve_premium` — премия кривой ОФЗ 1 год к ключевой ставке (ЦБ, КБД).
+
+Вероятность — условная частота события на месячной сетке с интервалом Уилсона 80%, рядом всегда
+baseline (безусловная частота). Варианты сравниваются по Brier (`comparison`). Ставка МСП
+используется только как бенчмарк надбавки, а не как цель прогноза.
+
+Контракты: [docs/API.md](docs/API.md). Источники и глубина истории: [docs/DATA.md](docs/DATA.md).
+
 
